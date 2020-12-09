@@ -77,6 +77,3 @@ Parameters:
  ```
  python experiment.py --dataset himoon --epsilon 0.01 --dimension 100 --n_samples 100000 --n_dim 100000 --method pardfrocc --repetitions 1 --outfile himoon_results.csv
  ```
-
-## Disclaimer
-This is released as a research prototype. It is not meant to be a production quality implementation. It has been made open source to enable easy reproducibility of research results. If you are interested in using this in a production, please send an email to data.cse.iitd@gmail.com.
