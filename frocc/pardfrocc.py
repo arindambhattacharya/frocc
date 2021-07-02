@@ -268,7 +268,7 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
         projections[projections > 1] = 1
         return projections
 
-    def decide_parallel(self, x, pruned):
+    def decide_parallel(self, x):
         projections = self.kernel(x, self.clf_dirs)
         projections = self.scale(projections, self.min_mat, self.max_mat)
 
@@ -284,7 +284,7 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
         scores = np.zeros((x.shape[0],))
         I = np.arange(self.num_clf_dim)
 
-        if not pruned:
+        if not self.pruned:
             scores = (
                 np.sum(
                     (
@@ -351,6 +351,7 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
         ndarray
             agreement scores of x
         """
+        self.pruned = pruned
         x = self.__split_data(x, self.n_jobs)
         with multiprocessing.Pool(processes=self.n_jobs) as pool:
 
@@ -369,7 +370,7 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
                 self.clf_dirs < -np.sqrt(s) / np.sqrt(n_components)
             ] = -np.sqrt(s) / np.sqrt(n_components)
 
-            scores = pool.map(self.decide_parallel, x, pruned)
+            scores = pool.map(self.decide_parallel, x)
 
         return np.concatenate(scores, axis=0)
 
