@@ -309,8 +309,8 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
                     - mask[:, I],
                     axis=1,
                 )
-                - useless_dims
-            ) / (self.num_clf_dim - useless_dims)
+                - len(useless_dims)
+            ) / (self.num_clf_dim - len(useless_dims))
 
         return scores
 
