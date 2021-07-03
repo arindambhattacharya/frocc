@@ -298,7 +298,7 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
                 / self.num_clf_dim
             )
         else:
-            useless_dims = np.where(self.min_mat == self.max_mat)
+            useless_dims = np.sum((self.min_mat - self.max_mat) == 0)
             scores = (
                 np.sum(
                     (
@@ -309,8 +309,8 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
                     - mask[:, I],
                     axis=1,
                 )
-                - len(useless_dims)
-            ) / (self.num_clf_dim - len(useless_dims))
+                - useless_dims
+            ) / (self.num_clf_dim - useless_dims)
 
         return scores
 
