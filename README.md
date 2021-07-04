@@ -76,4 +76,11 @@ Parameters:
  Example:
  ```
  python experiment.py --dataset himoon --epsilon 0.01 --dimension 100 --n_samples 100000 --n_dim 100000 --method pardfrocc --repetitions 1 --outfile himoon_results.csv
+<<<<<<< HEAD
  ```
+## Hyper-parameter selection
+
+Details of hyper-parameters used to reproduce the results is provided in [hyper.pdf](./hyper.pdf)
+
+## Disclaimer
+This is released as a research prototype. It is not meant to be a production quality implementation. It has been made open source to enable easy reproducibility of research results.

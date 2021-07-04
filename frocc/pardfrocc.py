@@ -1,38 +1,40 @@
-from typing import Type
-import numpy as np
-from sklearn.base import BaseEstimator, OutlierMixin
-from sklearn.preprocessing import MinMaxScaler
-from time import time
-import scipy
+import math
 import multiprocessing
+from time import time
+from typing import Type
+
+import numpy as np
+import scipy
+from sklearn.base import BaseEstimator, OutlierMixin
+from sklearn.metrics.pairwise import linear_kernel
 
 
 class ParDFROCC(BaseEstimator, OutlierMixin):
     """FROCC classifier
 
-        Parameters
-        ----------
-        num_clf_dim : int, optional
-            number of random classification directions, by default 10
-        epsilon : float, optional
-            sepratation margin as a fraction of range, by default 0.1
-        threshold : float, optional
-            agreement threshold, by default 1
-        bin_factor : int, optional
-            discretization parameter, by default 2
-        kernel : callable, optional
-            kernel function, by default dot
-        precision : type, optional
-            floating point precision to use, by default np.float16
+    Parameters
+    ----------
+    num_clf_dim : int, optional
+        number of random classification directions, by default 10
+    epsilon : float, optional
+        sepratation margin as a fraction of range, by default 0.1
+    threshold : float, optional
+        agreement threshold, by default 1
+    bin_factor : int, optional
+        discretization parameter, by default 2
+    kernel : callable, optional
+        kernel function, by default linear
+    precision : type, optional
+        floating point precision to use, by default np.float16
 
-        Examples
-        ---------
-        >>> import frocc, datasets
-        >>> x, y, _, _ = datasets.gaussian()
-        >>> clf = MultiBatchFROCC()
-        >>> clf.fit(x)
-        >>> preds = clf.predict(x)
-        """
+    Examples
+    ---------
+    >>> import frocc, datasets
+    >>> x, y, _, _ = datasets.gaussian()
+    >>> clf = MultiBatchFROCC()
+    >>> clf.fit(x)
+    >>> preds = clf.predict(x)
+    """
 
     def __init__(
         self,
@@ -41,7 +43,7 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
         threshold: float = 1,
         bin_factor: int = 2,
         density: float = 0.01,
-        kernel: Type[np.dot] = lambda x, y: x.dot(y.T),
+        kernel: Type[linear_kernel] = linear_kernel,
         precision: type = np.float32,
         n_jobs: int = 8,
     ):
@@ -106,7 +108,6 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
         return (np.sqrt(s) / np.sqrt(n_components)) * S
 
     def get_scalars(self, projections):
-
         min_mat = np.amin(projections[0], axis=0).reshape(1, -1)
         max_mat = np.amax(projections[0], axis=0).reshape(1, -1)
         for i in range(1, len(projections)):
@@ -117,10 +118,12 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
         return min_mat, max_mat
 
     def scale(self, projections, min_mat, max_mat):
-        useful_dims = np.where(self.min_mat!=self.max_mat)
-        useless_dims = np.where(self.min_mat==self.max_mat)
-        
-        projections[:, useful_dims] = (projections[:, useful_dims] - min_mat[useful_dims]) / (max_mat[useful_dims] - min_mat[useful_dims])
+        useful_dims = np.where(self.min_mat != self.max_mat)
+        useless_dims = np.where(self.min_mat == self.max_mat)
+
+        projections[:, useful_dims] = (
+            projections[:, useful_dims] - min_mat[useful_dims]
+        ) / (max_mat[useful_dims] - min_mat[useful_dims])
         projections[:, useless_dims] = 0
         return projections
 
@@ -135,7 +138,6 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
         t = self._achlioptas_dist(shape=(self.num_clf_dim, n_non_zero))
         full_dict = scipy.sparse.csc_matrix((self.num_clf_dim, self.feature_len))
         full_dict[:, non_zero_dims] = t
-
 
         return full_dict
 
@@ -164,6 +166,7 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
         self
             Fitted classifier
         """
+        x = self.__split_data(x, self.n_jobs)
         self.feature_len = x[0].shape[1]
         if self.__sparse:
             self.clf_dirs = scipy.sparse.csc_matrix(
@@ -171,7 +174,6 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
             )
         else:
             self.clf_dirs = np.zeros((self.num_clf_dim, self.feature_len))
-        x = self.__split_data(x, self.n_jobs)
         with multiprocessing.Pool(processes=self.n_jobs) as pool:
 
             d = pool.map(self.initalize_dict, x)
@@ -246,7 +248,6 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
 
         projections = self.kernel(x, self.clf_dirs)  # shape should be NxD
 
-
         # get the new min and max matrices
         new_min, new_max = self.get_scalars(projections)
 
@@ -257,19 +258,17 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
         # scale
         new_proj = self.scale(projections, self.min_mat, self.max_mat)
 
-
         self.get_intervals(new_proj)
 
     def clip(self, projections):
         """
-            Clip projections to 0-1 range for the test-set
+        Clip projections to 0-1 range for the test-set
         """
         projections[projections < 0] = 0
         projections[projections > 1] = 1
         return projections
 
     def decide_parallel(self, x):
-
         projections = self.kernel(x, self.clf_dirs)
         projections = self.scale(projections, self.min_mat, self.max_mat)
 
@@ -284,23 +283,38 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
 
         scores = np.zeros((x.shape[0],))
         I = np.arange(self.num_clf_dim)
-        scores = (
-            np.sum(
-                (
-                    self.left_intervals[I, bin_ids[:, I]]
-                    + self.right_intervals[I, bin_ids[:, I]]
-                    >= self.bin_factor
-                ).astype(np.int)
-                - mask[:, I],
-                axis=1,
+
+        if not self.pruned:
+            scores = (
+                np.sum(
+                    (
+                        self.left_intervals[I, bin_ids[:, I]]
+                        + self.right_intervals[I, bin_ids[:, I]]
+                        >= self.bin_factor
+                    ).astype(np.int)
+                    - mask[:, I],
+                    axis=1,
+                )
+                / self.num_clf_dim
             )
-            / self.num_clf_dim
-        )
+        else:
+            useless_dims = np.sum((self.min_mat - self.max_mat) == 0)
+            scores = (
+                np.sum(
+                    (
+                        self.left_intervals[I, bin_ids[:, I]]
+                        + self.right_intervals[I, bin_ids[:, I]]
+                        >= self.bin_factor
+                    ).astype(np.int)
+                    - mask[:, I],
+                    axis=1,
+                )
+                - useless_dims
+            ) / (self.num_clf_dim - useless_dims)
 
         return scores
 
     def initialize_dict_test(self, x):
-
         non_zero_dims = np.where(x.getnnz(axis=0) != 0)[0]
 
         if self.__sparse:
@@ -318,24 +332,26 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
         t = self._achlioptas_dist(shape=(self.num_clf_dim, n_non_zero))
         full_dict = scipy.sparse.csc_matrix((self.num_clf_dim, self.feature_len))
 
-
         full_dict[:, non_zero_dims] = t
 
         return full_dict
 
-    def decision_function(self, x):
+    def decision_function(self, x, pruned=True):
         """Returns agreement fraction for points in a test set
 
         Parameters
         ----------
-        x : ndarray
-            Test set
+        x : Sparse csc/csr matrix
+            Data to evaluate
+        pruned : bool, optional
+            Scores returned are pruned to useful dimensions, by default True
 
         Returns
         -------
-        1d-array - float
-            Agreement fraction of points in x
+        ndarray
+            agreement scores of x
         """
+        self.pruned = pruned
         x = self.__split_data(x, self.n_jobs)
         with multiprocessing.Pool(processes=self.n_jobs) as pool:
 
@@ -356,7 +372,6 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
 
             scores = pool.map(self.decide_parallel, x)
 
-        
         return np.concatenate(scores, axis=0)
 
     def predict(self, x):
@@ -410,7 +425,7 @@ class ParDFROCC(BaseEstimator, OutlierMixin):
 
     def __split_data(self, X, n_batches):
         x_list = []
-        m = int(X.shape[0]/n_batches)
+        m = int(math.ceil(X.shape[0] / n_batches))
         for i in range(n_batches):
-            x_list.append(X[i*m:(i+1)*m])
+            x_list.append(X[i * m : (i + 1) * m])
         return x_list
